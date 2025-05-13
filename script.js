@@ -561,3 +561,15 @@ function addCone() {
         console.log('Cooldown ended. You can add another cone.');
     }, 60000); // 1 minute cooldown
 }
+
+// Add event listener to the "Add Cone" button
+document.getElementById('add-cone-button').addEventListener('click', addCone);
+
+// Reset the game
+resetButton.addEventListener('click', initGame);
+
+// Load game data on page load
+window.addEventListener('load', () => {
+    loadGameData();
+    initGame();
+});
