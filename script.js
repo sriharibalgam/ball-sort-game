@@ -1,9 +1,11 @@
-const colors = ['red', 'blue', 'green', 'yellow'];
+const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan', 'magenta', 'lime', 'teal', 'navy', 'maroon', 'olive', 'silver', 'gray'];
 const conesContainer = document.getElementById('cones-container');
 const resetButton = document.getElementById('reset-button');
 
 let cones = [];
 let level = 1; // Start at level 1
+let undoStack = []; // Stack to store moves for undo
+let undoChances = 3; // Maximum undo chances per level
 
 // Function to generate random bright hex colors with names
 function generateNamedColor(index) {
@@ -26,7 +28,7 @@ function isColorTooSimilar(newColor) {
     const newRgb = hexToRgb(newColor);
     return colors.some(existingColor => {
         const existingRgb = hexToRgb(existingColor);
-        return colorDistance(newRgb, existingRgb) < 100; // Threshold for similarity
+        return colorDistance(newRgb, existingRgb) < 20; // Threshold for similarity
     });
 }
 
@@ -59,6 +61,45 @@ function isBrightColor(hexColor) {
     return brightness > 128;
 }
 
+function getRgbFromColorName(colorName, opacity = 1) {
+    // Create a temporary element to use the browser's color parsing
+    const tempElement = document.createElement("div");
+    tempElement.style.color = colorName;
+    document.body.appendChild(tempElement);
+
+    // Get the computed color value
+    const computedColor = window.getComputedStyle(tempElement).color;
+    document.body.removeChild(tempElement);
+
+    // Check if the color is valid
+    if (computedColor === "rgb(0, 0, 0)" && colorName.toLowerCase() !== "black") {
+        return "Invalid color name";
+    }
+
+    // Convert RGB to RGBA by adding opacity
+    const rgbaColor = computedColor.replace("rgb", "rgba").replace(")", `, ${opacity})`);
+    return rgbaColor;
+}
+
+// Function to dynamically generate CSS classes for colors
+function generateColorClasses() {
+    const style = document.createElement('style');
+    let cssContent = '';
+
+    colors.forEach(color => {        
+        const lightenedColor = getRgbFromColorName(color, 0.7); // Adjust opacity as needed
+        console.log(`Lightened color: ${lightenedColor}, Original color: ${color}`);
+        cssContent += `
+            .ball.${color} {
+                background: radial-gradient(circle, ${lightenedColor}, ${color});
+            }
+        `;
+    });
+
+    style.innerHTML = cssContent;
+    document.head.appendChild(style);
+}
+
 // Function to update the level display
 function updateLevelDisplay() {
     const levelDisplay = document.getElementById('level-display');
@@ -89,6 +130,9 @@ function persistGameData() {
 
 // Function to load game data
 function loadGameData() {
+    const userName = localStorage.getItem('userName');
+    document.getElementById('user-name-display').textContent = `Player: ${userName || 'Guest'}`;
+
     const gameData = JSON.parse(localStorage.getItem('gameData'));
     if (gameData) {
         level = gameData.level || 1;
@@ -103,23 +147,78 @@ document.getElementById('change-user-button').addEventListener('click', () => {
     initGame();
 });
 
+// Function to update undo chances display
+function updateundoChancesDisplay() {
+    const undoButton = document.getElementById('undo-button');
+    undoButton.innerHTML = `<i class="fa-solid fa-rotate-left"></i>`;
+    undoButton.disabled = undoChances === 0; // Disable button if no chances left
+}
+
+// Function to undo the last move
+function undoMove() {
+    if (undoChances === 0) {
+        alert('No undo chances left!');
+        return;
+    }
+
+    const lastMove = undoStack.pop();
+    if (!lastMove) {
+        alert('No moves to undo!');
+        return;
+    }
+
+    const { ball, sourceConeIndex, targetConeIndex } = lastMove;
+
+    // Move the ball back to the source cone
+    const sourceCone = document.querySelector(`.cone[data-index="${sourceConeIndex}"]`);
+    const targetCone = document.querySelector(`.cone[data-index="${targetConeIndex}"]`);
+
+    if (sourceCone && targetCone) {
+        targetCone.removeChild(ball);
+        sourceCone.appendChild(ball);
+
+        // Update the cones array
+        cones[targetConeIndex].pop();
+        cones[sourceConeIndex].push(ball.dataset.color);
+
+        undoChances--;
+        updateundoChancesDisplay();
+        console.log(`undo successful: Ball moved back to cone ${sourceConeIndex}`);
+    }
+}
+
+// Function to handle ball drop
+function handleBallDrop(ball, sourceConeIndex, targetConeIndex) {
+    undoStack.push({ ball, sourceConeIndex, targetConeIndex }); // Save move for undo
+    if (undoStack.length > 3) undoStack.shift(); // Limit stack size to 3
+}
+
+// Reset undo chances on level reset
+function resetundoChances() {
+    undoStack = [];
+    undoChances = 3;
+    updateundoChancesDisplay();
+}
+
 // Initialize the game
 function initGame() {
     conesContainer.innerHTML = '';
     cones = [];
-    // askUserName(); // Ensure user info is displayed
+    resetundoChances(); // Reset undo chances
     updateLevelDisplay(); // Update level display
 
+    generateColorClasses(); // Generate dynamic CSS classes for colors
+
+    console.log(`Initializing game for level ${colors.length}`);
     // Dynamically generate more colors if the level exceeds the predefined colors
     while (colors.length < level + 2) {
         const { name, hex } = generateNamedColor(colors.length + 1);
         colors.push(name);
-
         // Add the color to the stylesheet dynamically
         const style = document.createElement('style');
         style.innerHTML = `
             .ball.${name} {
-                background-color: ${hex};
+                background: radial-gradient(circle, ${hex}, ${hex});
             }
         `;
         document.head.appendChild(style);
@@ -298,6 +397,9 @@ function onTouchEnd(event) {
                 droppletSound.play().catch(err => console.warn('Audio play failed:', err));
             }
 
+            // Track the move for undo
+            handleBallDrop(draggedBall, sourceIndex, targetIndex);
+
             console.log(`Ball moved successfully to cone ${targetIndex}`);
             draggedBall = null;
 
@@ -419,6 +521,9 @@ conesContainer.addEventListener('drop', event => {
             // Play drop sound
             const dropSound = new Audio('assets/dropplet.mp3');
             dropSound.play();
+
+            // Track the move for undo
+            handleBallDrop(draggedBall, sourceIndex, targetIndex);
 
             console.log(`Ball moved successfully to cone ${targetIndex}`);
             draggedBall = null;
@@ -564,6 +669,9 @@ function addCone() {
 
 // Add event listener to the "Add Cone" button
 document.getElementById('add-cone-button').addEventListener('click', addCone);
+
+// Add event listener to the undo button
+document.getElementById('undo-button').addEventListener('click', undoMove);
 
 // Reset the game
 resetButton.addEventListener('click', initGame);
